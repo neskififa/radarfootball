@@ -1,933 +1,723 @@
-# Leagues.py - FOOTBALL PREDICTOR PRO v7.0 (ADVANCED MODELS + HTML EXPORT)
 import streamlit as st
 import pandas as pd
 import numpy as np
-from scipy.stats import poisson, skellam
-import requests
-from PIL import Image
-from io import BytesIO
 import plotly.graph_objects as go
 import plotly.express as px
-import re
 from datetime import datetime
+from io import BytesIO
+import math
 import warnings
-import base64
-
 warnings.filterwarnings('ignore')
 
-# ================================
-# CONFIG
-# ================================
-st.set_page_config(page_title="Predictor Pro v7.0", layout="wide")
+# Page configuration
+st.set_page_config(page_title="Football Betting Model", layout="wide", page_icon="⚽")
+
+# Custom CSS
 st.markdown("""
-# Football Predictor Pro v7.0
-**Advanced Statistical Models • FT Score • xG • Shots • SoT • Corners • Power Ratings • HTML Export**
-""")
+<style>
+    .main-header {
+        font-size: 3rem;
+        font-weight: bold;
+        text-align: center;
+        background: linear-gradient(90deg, #1e3c72, #2a5298);
+        -webkit-background-clip: text;
+        -webkit-text-fill-color: transparent;
+        margin-bottom: 2rem;
+    }
+    .metric-card {
+        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        padding: 1.5rem;
+        border-radius: 10px;
+        color: white;
+    }
+    .stButton>button {
+        width: 100%;
+        background: linear-gradient(90deg, #667eea, #764ba2);
+        color: white;
+    }
+    .value-bet {
+        background: #d4edda;
+        border-left: 4px solid #28a745;
+        padding: 1rem;
+        margin: 0.5rem 0;
+        border-radius: 5px;
+    }
+</style>
+""", unsafe_allow_html=True)
 
-# ================================
-# ENHANCED DATA PROCESSING
-# ================================
-def load_demo_csv() -> pd.DataFrame:
-    return pd.DataFrame({
-        "Date": pd.date_range("2025-08-15", periods=50, freq="3D"),
-        "HomeTeam": ["Liverpool", "Arsenal", "Man City", "Chelsea", "Tottenham", "Man United", "Newcastle", "West Ham", "Everton", "Leicester"] * 5,
-        "AwayTeam": ["Bournemouth", "Brighton", "Wolves", "Fulham", "Crystal Palace", "Southampton", "Brentford", "Aston Villa", "Leeds", "Norwich"] * 5,
-        "FTHG": [4, 2, 3, 4, 2, 1, 3, 0, 2, 1] * 5,
-        "FTAG": [2, 1, 0, 2, 1, 2, 0, 1, 1, 0] * 5,
-        "HS": [19, 12, 14, 16, 11, 8, 13, 7, 10, 9] * 5,
-        "AS": [10, 5, 6, 8, 5, 9, 4, 6, 5, 3] * 5,
-        "HST": [10, 6, 7, 8, 5, 3, 6, 2, 4, 3] * 5,
-        "AST": [3, 2, 1, 3, 2, 4, 1, 2, 1, 1] * 5,
-        "HC": [6, 6, 7, 8, 5, 4, 6, 3, 5, 4] * 5,
-        "AC": [7, 4, 3, 5, 3, 6, 2, 4, 3, 2] * 5,
-        "HY": [2, 1, 3, 2, 1, 4, 2, 3, 1, 2] * 5,
-        "AY": [3, 2, 1, 4, 3, 2, 1, 2, 3, 1] * 5,
-        "HR": [0, 0, 1, 0, 0, 1, 0, 0, 0, 0] * 5,
-        "AR": [0, 1, 0, 0, 0, 0, 1, 0, 0, 0] * 5,
-    })
+st.markdown('<h1 class="main-header">⚽ Professional Football Betting Model</h1>', unsafe_allow_html=True)
 
-# ================================
-# ADVANCED STATISTICAL MODELS
-# ================================
-class AdvancedFootballPredictor:
-    def __init__(self):
-        self.team_ratings = {}
-        
-    def calculate_team_ratings(self, df):
-        """Calculate advanced team ratings using Dixon-Coles inspired approach"""
-        teams = sorted(set(df['HOMETEAM'].unique()) | set(df['AWAYTEAM'].unique()))
-        
-        # Initialize ratings
-        attack_ratings = {team: 1.0 for team in teams}
-        defense_ratings = {team: 1.0 for team in teams}
-        home_advantage = 1.2  # Typical home advantage factor
-        
-        # Simple iterative rating calculation
-        for iteration in range(10):
-            for team in teams:
-                home_games = df[df['HOMETEAM'] == team]
-                away_games = df[df['AWAYTEAM'] == team]
-                
-                if len(home_games) > 0:
-                    home_goals_for = home_games['FTHG'].mean()
-                    home_goals_against = home_games['FTAG'].mean()
-                    
-                    opp_defense_avg = np.mean([defense_ratings.get(opp, 1.0) for opp in home_games['AWAYTEAM']])
-                    if opp_defense_avg > 0:
-                        attack_ratings[team] = home_goals_for / (home_advantage * opp_defense_avg)
-                
-                if len(away_games) > 0:
-                    away_goals_for = away_games['FTAG'].mean()
-                    away_goals_against = away_games['FTHG'].mean()
-                    
-                    opp_defense_avg = np.mean([defense_ratings.get(opp, 1.0) for opp in away_games['HOMETEAM']])
-                    if opp_defense_avg > 0:
-                        attack_ratings[team] = (attack_ratings.get(team, 1.0) + away_goals_for / opp_defense_avg) / 2
-                        
-                    opp_attack_avg = np.mean([attack_ratings.get(opp, 1.0) for opp in away_games['HOMETEAM']])
-                    if opp_attack_avg > 0:
-                        defense_ratings[team] = away_goals_against / (home_advantage * opp_attack_avg)
-        
-        # Normalize ratings
-        avg_attack = np.mean(list(attack_ratings.values()))
-        avg_defense = np.mean(list(defense_ratings.values()))
-        
-        for team in teams:
-            attack_ratings[team] = attack_ratings[team] / avg_attack if avg_attack > 0 else 1.0
-            defense_ratings[team] = defense_ratings[team] / avg_defense if avg_defense > 0 else 1.0
-            
-        self.team_ratings = {
-            'attack': attack_ratings,
-            'defense': defense_ratings,
-            'home_advantage': home_advantage
-        }
-        
-        return self.team_ratings
-    
-    def predict_goals_dixon_coles(self, home_team, away_team, league_avg_home_goals=1.6, league_avg_away_goals=1.3):
-        """Dixon-Coles inspired goal prediction"""
-        if not self.team_ratings:
-            return None
-            
-        attack = self.team_ratings['attack']
-        defense = self.team_ratings['defense']
-        home_adv = self.team_ratings['home_advantage']
-        
-        home_attack = attack.get(home_team, 1.0)
-        away_attack = attack.get(away_team, 1.0)
-        home_defense = defense.get(home_team, 1.0)
-        away_defense = defense.get(away_team, 1.0)
-        
-        # Expected goals
-        home_xg = home_attack * away_defense * home_adv * league_avg_home_goals
-        away_xg = away_attack * home_defense * league_avg_away_goals
-        
-        # Apply Poisson distribution
-        home_goals_probs = [poisson.pmf(i, home_xg) for i in range(8)]
-        away_goals_probs = [poisson.pmf(i, away_xg) for i in range(8)]
-        
-        # Most likely score
-        max_prob = 0
-        most_likely_score = "0-0"
-        
-        for i in range(8):
-            for j in range(8):
-                prob = home_goals_probs[i] * away_goals_probs[j]
-                if prob > max_prob:
-                    max_prob = prob
-                    most_likely_score = f"{i}-{j}"
-        
-        # Win probabilities
-        home_win_prob = 0
-        draw_prob = 0
-        away_win_prob = 0
-        
-        for i in range(8):
-            for j in range(8):
-                prob = home_goals_probs[i] * away_goals_probs[j]
-                if i > j:
-                    home_win_prob += prob
-                elif i == j:
-                    draw_prob += prob
-                else:
-                    away_win_prob += prob
-        
-        return {
-            'home_xg': round(home_xg, 2),
-            'away_xg': round(away_xg, 2),
-            'most_likely_score': most_likely_score,
-            'home_win_prob': round(home_win_prob * 100, 1),
-            'draw_prob': round(draw_prob * 100, 1),
-            'away_win_prob': round(away_win_prob * 100, 1),
-            'confidence': round(max_prob * 100, 1)
-        }
-
-class BayesianShotsPredictor:
-    """Bayesian model for shots and corners prediction"""
-    
-    def __init__(self):
-        self.priors = {
-            'shots_alpha': 2, 'shots_beta': 2,
-            'sot_alpha': 2, 'sot_beta': 2,
-            'corners_alpha': 2, 'corners_beta': 2
-        }
-    
-    def predict_shots(self, home_team, away_team, home_stats, away_stats, league_avg):
-        """Bayesian prediction for shots and shots on target"""
-        
-        # Home shots prediction
-        home_shots_avg = home_stats.get('shots', league_avg['home_shots'])
-        home_shots_obs = max(1, home_stats.get('shots', 8))
-        
-        home_shots_alpha = self.priors['shots_alpha'] + home_shots_obs
-        home_shots_beta = self.priors['shots_beta'] + 1
-        
-        home_shots_pred = home_shots_alpha / (home_shots_alpha + home_shots_beta) * home_shots_avg
-        home_shots_pred = home_shots_pred * (2 - away_stats.get('defense_rating', 100) / 100)
-        
-        # Away shots prediction
-        away_shots_avg = away_stats.get('shots', league_avg['away_shots'])
-        away_shots_obs = max(1, away_stats.get('shots', 6))
-        
-        away_shots_alpha = self.priors['shots_alpha'] + away_shots_obs
-        away_shots_beta = self.priors['shots_beta'] + 1
-        
-        away_shots_pred = away_shots_alpha / (away_shots_alpha + away_shots_beta) * away_shots_avg
-        away_shots_pred = away_shots_pred * (2 - home_stats.get('defense_rating', 100) / 100)
-        
-        # Shots on target
-        home_sot_ratio = home_stats.get('accuracy', 0.35)
-        away_sot_ratio = away_stats.get('accuracy', 0.30)
-        
-        home_sot_pred = home_shots_pred * home_sot_ratio
-        away_sot_pred = away_shots_pred * away_sot_ratio
-        
-        return {
-            'home_shots': round(max(3, home_shots_pred), 1),
-            'away_shots': round(max(2, away_shots_pred), 1),
-            'home_sot': round(max(1, home_sot_pred), 1),
-            'away_sot': round(max(1, away_sot_pred), 1)
-        }
-    
-    def predict_corners(self, home_team, away_team, home_stats, away_stats, league_avg):
-        """Bayesian prediction for corners"""
-        
-        home_corners_avg = home_stats.get('corners', league_avg['home_corners'])
-        home_corners_obs = max(1, home_stats.get('corners', 4))
-        
-        home_corners_alpha = self.priors['corners_alpha'] + home_corners_obs
-        home_corners_beta = self.priors['corners_beta'] + 1
-        
-        home_corners_pred = home_corners_alpha / (home_corners_alpha + home_corners_beta) * home_corners_avg
-        home_corners_pred = home_corners_pred * (2 - away_stats.get('defense_rating', 100) / 120)
-        
-        away_corners_avg = away_stats.get('corners', league_avg['away_corners'])
-        away_corners_obs = max(1, away_stats.get('corners', 3))
-        
-        away_corners_alpha = self.priors['corners_alpha'] + away_corners_obs
-        away_corners_beta = self.priors['corners_beta'] + 1
-        
-        away_corners_pred = away_corners_alpha / (away_corners_alpha + away_corners_beta) * away_corners_avg
-        away_corners_pred = away_corners_pred * (2 - home_stats.get('defense_rating', 100) / 120)
-        
-        return {
-            'home_corners': round(max(2, home_corners_pred), 1),
-            'away_corners': round(max(1, away_corners_pred), 1)
-        }
-
-# ================================
-# VALUE BETTING IDENTIFICATION
-# ================================
-class ValueBettingAnalyzer:
-    """Identify value betting opportunities"""
-    
-    def calculate_value(self, model_prob, implied_prob):
-        """Calculate betting value"""
-        if implied_prob <= 0:
-            return 0
-        return (model_prob - implied_prob) / implied_prob * 100
-    
-    def analyze_value(self, predictions, bookmaker_odds=None):
-        """Analyze value across all outcomes"""
-        if bookmaker_odds is None:
-            bookmaker_odds = {
-                'home': 2.0,
-                'draw': 3.5, 
-                'away': 3.8
-            }
-        
-        # Convert odds to implied probabilities
-        implied_probs = {
-            'home': 1 / bookmaker_odds['home'],
-            'draw': 1 / bookmaker_odds['draw'],
-            'away': 1 / bookmaker_odds['away']
-        }
-        
-        # Normalize to 100%
-        total_implied = sum(implied_probs.values())
-        implied_probs = {k: v/total_implied for k, v in implied_probs.items()}
-        
-        model_probs = {
-            'home': predictions.get('home_win_prob', 33) / 100,
-            'draw': predictions.get('draw_prob', 33) / 100,
-            'away': predictions.get('away_win_prob', 33) / 100
-        }
-        
-        # Calculate value
-        value_analysis = {}
-        for outcome in ['home', 'draw', 'away']:
-            value_pct = self.calculate_value(model_probs[outcome], implied_probs[outcome])
-            value_analysis[outcome] = {
-                'value_percentage': round(value_pct, 1),
-                'model_prob': round(model_probs[outcome] * 100, 1),
-                'implied_prob': round(implied_probs[outcome] * 100, 1),
-                'rating': 'HIGH VALUE' if value_pct > 10 else 'VALUE' if value_pct > 5 else 'FAIR' if value_pct > -5 else 'POOR'
-            }
-        
-        return value_analysis
-
-# ================================
-# HTML REPORT GENERATOR
-# ================================
-class HTMLReportGenerator:
-    """Generate professional HTML reports"""
-    
-    def generate_report(self, home_team, away_team, dc_prediction, shots_prediction, 
-                       corners_prediction, value_analysis, team_ratings, stats):
-        """Generate comprehensive HTML report"""
-        
-        home_stats = stats['home'].get(home_team, {})
-        away_stats = stats['away'].get(away_team, {})
-        
-        # Get value ratings with colors
-        def get_value_color(value):
-            if value > 10: return '#10b981'
-            elif value > 5: return '#84cc16'
-            elif value > -5: return '#f59e0b'
-            else: return '#ef4444'
-        
-        def get_rating_color(rating):
-            if rating > 120: return '#10b981'
-            elif rating > 100: return '#84cc16'
-            elif rating > 80: return '#f59e0b'
-            else: return '#ef4444'
-        
-        html_content = f"""
-<!DOCTYPE html>
-<html lang="en">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Advanced Football Prediction Report - {home_team} vs {away_team}</title>
-    <style>
-        * {{
-            margin: 0;
-            padding: 0;
-            box-sizing: border-box;
-        }}
-        
-        body {{
-            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-            line-height: 1.6;
-            color: #333;
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-            min-height: 100vh;
-        }}
-        
-        .container {{
-            max-width: 1200px;
-            margin: 0 auto;
-            padding: 20px;
-        }}
-        
-        .report-card {{
-            background: white;
-            border-radius: 20px;
-            box-shadow: 0 20px 40px rgba(0,0,0,0.1);
-            overflow: hidden;
-            margin-bottom: 30px;
-        }}
-        
-        .header {{
-            background: linear-gradient(135deg, #1e3c72 0%, #2a5298 100%);
-            color: white;
-            padding: 40px;
-            text-align: center;
-            position: relative;
-        }}
-        
-        .header::before {{
-            content: '';
-            position: absolute;
-            top: 0;
-            left: 0;
-            right: 0;
-            bottom: 0;
-            background: url('data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100"><circle cx="50" cy="50" r="2" fill="white" opacity="0.1"/></svg>');
-        }}
-        
-        .match-title {{
-            font-size: 2.5em;
-            font-weight: 700;
-            margin-bottom: 10px;
-            text-shadow: 2px 2px 4px rgba(0,0,0,0.3);
-        }}
-        
-        .match-subtitle {{
-            font-size: 1.2em;
-            opacity: 0.9;
-            font-weight: 300;
-        }}
-        
-        .prediction-section {{
-            padding: 40px;
-            border-bottom: 1px solid #e5e7eb;
-        }}
-        
-        .section-title {{
-            font-size: 1.8em;
-            color: #1e3c72;
-            margin-bottom: 30px;
-            text-align: center;
-            font-weight: 600;
-        }}
-        
-        .prediction-grid {{
-            display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
-            gap: 30px;
-            margin-bottom: 40px;
-        }}
-        
-        .prediction-card {{
-            background: #f8fafc;
-            border-radius: 15px;
-            padding: 25px;
-            border-left: 5px solid #3b82f6;
-            box-shadow: 0 5px 15px rgba(0,0,0,0.08);
-            transition: transform 0.3s ease;
-        }}
-        
-        .prediction-card:hover {{
-            transform: translateY(-5px);
-        }}
-        
-        .card-title {{
-            font-size: 1.3em;
-            color: #1e40af;
-            margin-bottom: 20px;
-            font-weight: 600;
-        }}
-        
-        .score-display {{
-            font-size: 3em;
-            font-weight: 700;
-            color: #1e3c72;
-            text-align: center;
-            margin: 20px 0;
-        }}
-        
-        .stats-grid {{
-            display: grid;
-            grid-template-columns: 1fr 1fr;
-            gap: 15px;
-            margin-top: 20px;
-        }}
-        
-        .stat-item {{
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            padding: 10px 0;
-            border-bottom: 1px solid #e5e7eb;
-        }}
-        
-        .stat-label {{
-            font-weight: 500;
-            color: #6b7280;
-        }}
-        
-        .stat-value {{
-            font-weight: 600;
-            color: #1f2937;
-        }}
-        
-        .value-badge {{
-            padding: 4px 12px;
-            border-radius: 20px;
-            font-size: 0.8em;
-            font-weight: 600;
-        }}
-        
-        .team-comparison {{
-            display: grid;
-            grid-template-columns: 1fr 1fr;
-            gap: 30px;
-            margin-top: 30px;
-        }}
-        
-        .team-card {{
-            background: linear-gradient(135deg, #f8fafc 0%, #e2e8f0 100%);
-            border-radius: 15px;
-            padding: 25px;
-            text-align: center;
-        }}
-        
-        .team-name {{
-            font-size: 1.5em;
-            font-weight: 700;
-            color: #1e3c72;
-            margin-bottom: 20px;
-        }}
-        
-        .rating-display {{
-            font-size: 2.5em;
-            font-weight: 700;
-            margin: 10px 0;
-        }}
-        
-        .progress-bar {{
-            background: #e5e7eb;
-            border-radius: 10px;
-            height: 8px;
-            margin: 15px 0;
-            overflow: hidden;
-        }}
-        
-        .progress-fill {{
-            height: 100%;
-            border-radius: 10px;
-            transition: width 0.3s ease;
-        }}
-        
-        .recommendation-section {{
-            background: linear-gradient(135deg, #10b981 0%, #059669 100%);
-            color: white;
-            padding: 30px;
-            border-radius: 15px;
-            margin-top: 30px;
-        }}
-        
-        .recommendation-title {{
-            font-size: 1.5em;
-            margin-bottom: 15px;
-            font-weight: 600;
-        }}
-        
-        .footer {{
-            text-align: center;
-            padding: 30px;
-            background: #1e3c72;
-            color: white;
-            margin-top: 40px;
-        }}
-        
-        .timestamp {{
-            font-size: 0.9em;
-            opacity: 0.8;
-            margin-top: 10px;
-        }}
-        
-        @media (max-width: 768px) {{
-            .prediction-grid {{
-                grid-template-columns: 1fr;
-            }}
-            
-            .team-comparison {{
-                grid-template-columns: 1fr;
-            }}
-            
-            .match-title {{
-                font-size: 2em;
-            }}
-        }}
-    </style>
-</head>
-<body>
-    <div class="container">
-        <div class="report-card">
-            <!-- Header -->
-            <div class="header">
-                <h1 class="match-title">{home_team} vs {away_team}</h1>
-                <p class="match-subtitle">Advanced Football Prediction Report</p>
-            </div>
-            
-            <!-- Main Prediction -->
-            <div class="prediction-section">
-                <h2 class="section-title">🎯 Match Prediction</h2>
-                <div class="prediction-grid">
-                    <div class="prediction-card">
-                        <h3 class="card-title">Dixon-Coles Model</h3>
-                        <div class="score-display">{dc_prediction['most_likely_score']}</div>
-                        <div class="stats-grid">
-                            <div class="stat-item">
-                                <span class="stat-label">Expected Goals</span>
-                                <span class="stat-value">{dc_prediction['home_xg']} - {dc_prediction['away_xg']}</span>
-                            </div>
-                            <div class="stat-item">
-                                <span class="stat-label">Model Confidence</span>
-                                <span class="stat-value">{dc_prediction['confidence']}%</span>
-                            </div>
-                            <div class="stat-item">
-                                <span class="stat-label">{home_team} Win</span>
-                                <span class="stat-value">{dc_prediction['home_win_prob']}%</span>
-                            </div>
-                            <div class="stat-item">
-                                <span class="stat-label">Draw</span>
-                                <span class="stat-value">{dc_prediction['draw_prob']}%</span>
-                            </div>
-                            <div class="stat-item">
-                                <span class="stat-label">{away_team} Win</span>
-                                <span class="stat-value">{dc_prediction['away_win_prob']}%</span>
-                            </div>
-                        </div>
-                    </div>
-                    
-                    <div class="prediction-card">
-                        <h3 class="card-title">📊 Match Statistics</h3>
-                        <div class="stats-grid">
-                            <div class="stat-item">
-                                <span class="stat-label">Shots</span>
-                                <span class="stat-value">{shots_prediction['home_shots']} - {shots_prediction['away_shots']}</span>
-                            </div>
-                            <div class="stat-item">
-                                <span class="stat-label">Shots on Target</span>
-                                <span class="stat-value">{shots_prediction['home_sot']} - {shots_prediction['away_sot']}</span>
-                            </div>
-                            <div class="stat-item">
-                                <span class="stat-label">Corners</span>
-                                <span class="stat-value">{corners_prediction['home_corners']} - {corners_prediction['away_corners']}</span>
-                            </div>
-                            <div class="stat-item">
-                                <span class="stat-label">Shot Accuracy</span>
-                                <span class="stat-value">{home_stats.get('accuracy', 0.35)*100:.1f}% - {away_stats.get('accuracy', 0.30)*100:.1f}%</span>
-                            </div>
-                        </div>
-                    </div>
-                </div>
-                
-                <!-- Team Comparison -->
-                <h2 class="section-title">⚔️ Team Analysis</h2>
-                <div class="team-comparison">
-                    <div class="team-card">
-                        <h3 class="team-name">{home_team}</h3>
-                        <div class="rating-display" style="color: {get_rating_color(team_ratings['attack'].get(home_team, 100))}">
-                            {team_ratings['attack'].get(home_team, 1.0)*100:.0f}
-                        </div>
-                        <div>Attack Rating</div>
-                        <div class="progress-bar">
-                            <div class="progress-fill" style="width: {min(team_ratings['attack'].get(home_team, 1.0)*50, 100)}%; background: {get_rating_color(team_ratings['attack'].get(home_team, 100))}"></div>
-                        </div>
-                        
-                        <div class="rating-display" style="color: {get_rating_color(200 - team_ratings['defense'].get(home_team, 100))}">
-                            {(2 - team_ratings['defense'].get(home_team, 1.0))*100:.0f}
-                        </div>
-                        <div>Defense Rating</div>
-                        <div class="progress-bar">
-                            <div class="progress-fill" style="width: {min((2 - team_ratings['defense'].get(home_team, 1.0))*50, 100)}%; background: {get_rating_color(200 - team_ratings['defense'].get(home_team, 100))}"></div>
-                        </div>
-                    </div>
-                    
-                    <div class="team-card">
-                        <h3 class="team-name">{away_team}</h3>
-                        <div class="rating-display" style="color: {get_rating_color(team_ratings['attack'].get(away_team, 100))}">
-                            {team_ratings['attack'].get(away_team, 1.0)*100:.0f}
-                        </div>
-                        <div>Attack Rating</div>
-                        <div class="progress-bar">
-                            <div class="progress-fill" style="width: {min(team_ratings['attack'].get(away_team, 1.0)*50, 100)}%; background: {get_rating_color(team_ratings['attack'].get(away_team, 100))}"></div>
-                        </div>
-                        
-                        <div class="rating-display" style="color: {get_rating_color(200 - team_ratings['defense'].get(away_team, 100))}">
-                            {(2 - team_ratings['defense'].get(away_team, 1.0))*100:.0f}
-                        </div>
-                        <div>Defense Rating</div>
-                        <div class="progress-bar">
-                            <div class="progress-fill" style="width: {min((2 - team_ratings['defense'].get(away_team, 1.0))*50, 100)}%; background: {get_rating_color(200 - team_ratings['defense'].get(away_team, 100))}"></div>
-                        </div>
-                    </div>
-                </div>
-                
-                <!-- Value Analysis -->
-                <h2 class="section-title">💰 Value Betting Analysis</h2>
-                <div class="prediction-grid">
-        """
-        
-        # Add value analysis cards
-        for outcome, analysis in value_analysis.items():
-            outcome_name = {'home': home_team, 'draw': 'Draw', 'away': away_team}[outcome]
-            color = get_value_color(analysis['value_percentage'])
-            
-            html_content += f"""
-                    <div class="prediction-card">
-                        <h3 class="card-title">{outcome_name}</h3>
-                        <div class="score-display" style="color: {color}; font-size: 2.5em;">
-                            {analysis['value_percentage']}%
-                        </div>
-                        <div class="stats-grid">
-                            <div class="stat-item">
-                                <span class="stat-label">Model Probability</span>
-                                <span class="stat-value">{analysis['model_prob']}%</span>
-                            </div>
-                            <div class="stat-item">
-                                <span class="stat-label">Implied Probability</span>
-                                <span class="stat-value">{analysis['implied_prob']}%</span>
-                            </div>
-                            <div class="stat-item">
-                                <span class="stat-label">Value Rating</span>
-                                <span class="stat-value">
-                                    <span class="value-badge" style="background: {color}; color: white;">
-                                        {analysis['rating']}
-                                    </span>
-                                </span>
-                            </div>
-                        </div>
-                    </div>
-            """
-        
-        html_content += f"""
-                </div>
-                
-                <!-- Recommendation -->
-                <div class="recommendation-section">
-                    <h3 class="recommendation-title">💡 Betting Recommendation</h3>
-                    <p>Based on the advanced statistical models and value analysis, the recommended approach is to focus on outcomes showing positive expected value (+EV). The Dixon-Coles model shows {dc_prediction['confidence']}% confidence in the predicted score of {dc_prediction['most_likely_score']}.</p>
-                </div>
-            </div>
-            
-            <!-- Footer -->
-            <div class="footer">
-                <p>Generated by Football Predictor Pro v7.0</p>
-                <p class="timestamp">Report generated on {datetime.now().strftime('%Y-%m-%d at %H:%M:%S')}</p>
-                <p style="margin-top: 10px; opacity: 0.8;">
-                    Advanced statistical models include Dixon-Coles goal prediction, Bayesian shots/corners forecasting, and value betting analysis.
-                </p>
-            </div>
-        </div>
-    </div>
-</body>
-</html>
-        """
-        
-        return html_content
-
-# ================================
-# MAIN APPLICATION
-# ================================
-def main():
-    # Load data
-    st.sidebar.header("Upload CSV")
-    uploaded_file = st.sidebar.file_uploader("E0.csv, D1.csv", type=["csv"])
-    
-    if uploaded_file:
-        df = pd.read_csv(uploaded_file, encoding='utf-8-sig')
+# Load and process data
+@st.cache_data
+def load_data(source='default', uploaded_file=None):
+    """Load data from default URL or uploaded file"""
+    if source == 'upload' and uploaded_file is not None:
+        df = pd.read_csv(uploaded_file)
     else:
-        st.sidebar.info("Demo data active.")
-        df = load_demo_csv()
+        url = "https://www.football-data.co.uk/mmz4281/2526/E0.csv"
+        df = pd.read_csv(url)
     
-    # Data preprocessing
-    df.columns = df.columns.str.strip().str.replace(r'\ufeff', '', regex=True)
-    required = {'HomeTeam': 'HOMETEAM', 'AwayTeam': 'AWAYTEAM', 'FTHG': 'FTHG', 'FTAG': 'FTAG',
-                'HS': 'HS', 'AS': 'AS', 'HC': 'HC', 'AC': 'AC', 'Date': 'DATE'}
-    optional = {'HST': 'HST', 'AST': 'AST', 'HY': 'HY', 'AY': 'AY', 'HR': 'HR', 'AR': 'AR'}
+    # Try different date formats
+    date_formats = ['%d/%m/%Y', '%Y-%m-%d', '%m/%d/%Y']
+    for fmt in date_formats:
+        try:
+            df['Date'] = pd.to_datetime(df['Date'], format=fmt)
+            break
+        except:
+            continue
     
-    missing = [k for k in required if k not in df.columns]
-    if missing:
-        st.error(f"Missing: {', '.join(missing)}")
-        st.stop()
+    if df['Date'].dtype != 'datetime64[ns]':
+        df['Date'] = pd.to_datetime(df['Date'], errors='coerce')
     
-    df = df.rename(columns={**required, **{k: v for k, v in optional.items() if k in df.columns}})
-    df['DATE'] = pd.to_datetime(df['DATE'], dayfirst=True, errors='coerce')
-    df = df.dropna(subset=['DATE']).sort_values('DATE').reset_index(drop=True)
+    # Validate required columns
+    required_cols = ['Date', 'HomeTeam', 'AwayTeam', 'FTHG', 'FTAG', 'FTR', 'B365H', 'B365D', 'B365A']
+    missing_cols = [col for col in required_cols if col not in df.columns]
     
-    # Compute form stats
-    @st.cache_data
-    def compute_form_stats(df: pd.DataFrame, last_n: int = 6) -> dict:
-        home_stats = []
-        away_stats = []
+    if missing_cols:
+        st.error(f"❌ Missing required columns: {', '.join(missing_cols)}")
+        return None
+    
+    return df
+
+def calculate_team_stats(df):
+    """Calculate comprehensive team statistics"""
+    teams = pd.concat([df['HomeTeam'], df['AwayTeam']]).unique()
+    stats = {}
+    
+    for team in teams:
+        home_games = df[df['HomeTeam'] == team]
+        away_games = df[df['AwayTeam'] == team]
         
-        lhg = df['FTHG'].mean() or 1.6
-        lag = df['FTAG'].mean() or 1.3
-        lh_shots = df['HS'].mean() or 12.0
-        la_shots = df['AS'].mean() or 10.0
-        lh_corners = df['HC'].mean() or 6.0
-        la_corners = df['AC'].mean() or 4.5
+        total_games = len(home_games) + len(away_games)
+        home_wins = (home_games['FTR'] == 'H').sum()
+        home_draws = (home_games['FTR'] == 'D').sum()
+        away_wins = (away_games['FTR'] == 'A').sum()
+        away_draws = (away_games['FTR'] == 'D').sum()
         
-        for team in df['HOMETEAM'].unique():
-            m = df[df['HOMETEAM'] == team].tail(last_n)
-            if len(m) == 0: continue
-            
-            goals_for = m['FTHG'].mean()
-            goals_against = m['FTAG'].mean()
-            shots = m['HS'].mean()
-            sot = m['HST'].mean() if 'HST' in m.columns else m['HS'].mean() * 0.35
-            corners = m['HC'].mean()
-            accuracy = (m['HST'] / m['HS']).mean() if 'HST' in m.columns and (m['HS'] > 0).all() else 0.35
-            
-            home_stats.append({
-                'team': team,
-                'goals_for': goals_for,
-                'goals_against': goals_against,
-                'shots': shots,
-                'sot': sot,
-                'corners': corners,
-                'accuracy': accuracy,
-            })
+        total_wins = home_wins + away_wins
+        total_goals = home_games['FTHG'].sum() + away_games['FTAG'].sum()
+        total_conceded = home_games['FTAG'].sum() + away_games['FTHG'].sum()
         
-        for team in df['AWAYTEAM'].unique():
-            m = df[df['AWAYTEAM'] == team].tail(last_n)
-            if len(m) == 0: continue
-            
-            goals_for = m['FTAG'].mean()
-            goals_against = m['FTHG'].mean()
-            shots = m['AS'].mean()
-            sot = m['AST'].mean() if 'AST' in m.columns else m['AS'].mean() * 0.30
-            corners = m['AC'].mean()
-            accuracy = (m['AST'] / m['AS']).mean() if 'AST' in m.columns and (m['AS'] > 0).all() else 0.30
-            
-            away_stats.append({
-                'team': team,
-                'goals_for': goals_for,
-                'goals_against': goals_against,
-                'shots': shots,
-                'sot': sot,
-                'corners': corners,
-                'accuracy': accuracy,
-            })
-        
-        home_df = pd.DataFrame(home_stats).set_index('team')
-        away_df = pd.DataFrame(away_stats).set_index('team')
-        
-        return {
-            'home': home_df.to_dict('index'),
-            'away': away_df.to_dict('index'),
-            'league_home_goals': lhg,
-            'league_away_goals': lag,
-            'league_home_shots': lh_shots,
-            'league_away_shots': la_shots,
-            'league_home_corners': lh_corners,
-            'league_away_corners': la_corners,
+        stats[team] = {
+            'games': total_games,
+            'wins': total_wins,
+            'win_rate': total_wins / total_games if total_games > 0 else 0,
+            'home_win_rate': home_wins / len(home_games) if len(home_games) > 0 else 0,
+            'away_win_rate': away_wins / len(away_games) if len(away_games) > 0 else 0,
+            'goals_per_game': total_goals / total_games if total_games > 0 else 0,
+            'conceded_per_game': total_conceded / total_games if total_games > 0 else 0,
+            'home_goals_avg': home_games['FTHG'].mean() if len(home_games) > 0 else 0,
+            'away_goals_avg': away_games['FTAG'].mean() if len(away_games) > 0 else 0,
+            'goal_difference': total_goals - total_conceded
         }
     
-    stats = compute_form_stats(df)
+    return stats
+
+def calculate_form(df, team, last_n=5):
+    """Calculate recent form for a team"""
+    team_games = df[(df['HomeTeam'] == team) | (df['AwayTeam'] == team)].tail(last_n)
     
-    # Initialize models
-    advanced_predictor = AdvancedFootballPredictor()
-    shots_predictor = BayesianShotsPredictor()
-    value_analyzer = ValueBettingAnalyzer()
-    html_generator = HTMLReportGenerator()
+    points = 0
+    goals_scored = 0
+    goals_conceded = 0
     
-    # Calculate team ratings
-    with st.spinner("Calculating advanced team ratings..."):
-        team_ratings = advanced_predictor.calculate_team_ratings(df)
+    for _, game in team_games.iterrows():
+        if game['HomeTeam'] == team:
+            goals_scored += game['FTHG']
+            goals_conceded += game['FTAG']
+            if game['FTR'] == 'H':
+                points += 3
+            elif game['FTR'] == 'D':
+                points += 1
+        else:
+            goals_scored += game['FTAG']
+            goals_conceded += game['FTHG']
+            if game['FTR'] == 'A':
+                points += 3
+            elif game['FTR'] == 'D':
+                points += 1
     
-    # Team selection
-    teams = sorted(set(df['HOMETEAM'].unique()) | set(df['AWAYTEAM'].unique()))
-    col1, col2 = st.columns(2)
-    home_team = col1.selectbox("Home Team", teams)
-    away_team = col2.selectbox("Away Team", teams)
+    return {
+        'points': points,
+        'goals_scored': goals_scored,
+        'goals_conceded': goals_conceded,
+        'games': len(team_games)
+    }
+
+def export_prediction_to_excel(home_team, away_team, prediction):
+    """Export match prediction to Excel"""
+    output = BytesIO()
     
-    if home_team == away_team:
-        st.warning("Select different teams.")
-        return
+    with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
+        workbook = writer.book
+        worksheet = workbook.add_worksheet('Prediction')
+        
+        # Define formats
+        title_format = workbook.add_format({
+            'bold': True,
+            'font_size': 14,
+            'bg_color': '#667eea',
+            'font_color': 'white',
+            'align': 'center',
+            'valign': 'vcenter'
+        })
+        
+        header_format = workbook.add_format({
+            'bold': True,
+            'bg_color': '#764ba2',
+            'font_color': 'white',
+            'align': 'center',
+            'valign': 'vcenter',
+            'border': 1
+        })
+        
+        data_format = workbook.add_format({
+            'border': 1,
+            'align': 'center',
+            'num_format': '0.0%'
+        })
+        
+        value_format = workbook.add_format({
+            'border': 1,
+            'align': 'center',
+            'num_format': '0.00'
+        })
+        
+        # Title
+        worksheet.merge_range('A1:D1', f'{home_team} vs {away_team} - Match Prediction', title_format)
+        worksheet.write('A2', f'Generated: {datetime.now().strftime("%d/%m/%Y %H:%M")}')
+        
+        # Match Odds
+        worksheet.write('A4', 'MATCH ODDS', header_format)
+        worksheet.write('B4', 'Probability', header_format)
+        worksheet.write('C4', 'Percentage', header_format)
+        worksheet.write('D4', 'Implied Odds', header_format)
+        
+        outcomes = [
+            (f'{home_team} Win', prediction['home']),
+            ('Draw', prediction['draw']),
+            (f'{away_team} Win', prediction['away'])
+        ]
+        
+        for idx, (outcome, prob) in enumerate(outcomes, start=5):
+            worksheet.write(f'A{idx}', outcome)
+            worksheet.write(f'B{idx}', prob, data_format)
+            worksheet.write(f'C{idx}', prob, data_format)
+            worksheet.write(f'D{idx}', 1/prob if prob > 0 else 0, value_format)
+        
+        # Expected Goals
+        worksheet.write('A9', 'EXPECTED GOALS', header_format)
+        worksheet.write('B9', 'Expected Goals', header_format)
+        
+        worksheet.write('A10', f'{home_team}')
+        worksheet.write('B10', prediction['home_xg'], value_format)
+        
+        worksheet.write('A11', f'{away_team}')
+        worksheet.write('B11', prediction['away_xg'], value_format)
+        
+        worksheet.write('A12', 'Total Expected Goals')
+        worksheet.write('B12', prediction['total_goals'], value_format)
+        
+        # Goal Line Markets
+        worksheet.write('A14', 'GOAL LINE MARKETS', header_format)
+        worksheet.write('B14', 'Probability', header_format)
+        
+        goal_lines = [
+            ('Over 1.5 Goals', prediction['over_15']),
+            ('Over 2.5 Goals', prediction['over_25']),
+            ('Over 3.5 Goals', prediction['over_35'])
+        ]
+        
+        for idx, (line, prob) in enumerate(goal_lines, start=15):
+            worksheet.write(f'A{idx}', line)
+            worksheet.write(f'B{idx}', prob, data_format)
+        
+        # Shots on Target
+        worksheet.write('A19', 'SHOTS ON TARGET', header_format)
+        worksheet.write('B19', 'Data', header_format)
+        
+        worksheet.write('A20', 'Expected Total SOT')
+        worksheet.write('B20', prediction['total_sot'], value_format)
+        
+        worksheet.write('A21', 'Over 10.5 SOT')
+        worksheet.write('B21', prediction['sot_over_10'], data_format)
+        
+        # Corners
+        worksheet.write('A23', 'CORNERS', header_format)
+        worksheet.write('B23', 'Data', header_format)
+        
+        worksheet.write('A24', 'Expected Total Corners')
+        worksheet.write('B24', prediction['total_corners'], value_format)
+        
+        worksheet.write('A25', 'Over 8.5 Corners')
+        worksheet.write('B25', prediction['corners_over_8'], data_format)
+        
+        worksheet.write('A26', 'Over 10.5 Corners')
+        worksheet.write('B26', prediction['corners_over_10'], data_format)
+        
+        worksheet.write('A27', 'Over 12.5 Corners')
+        worksheet.write('B27', prediction['corners_over_12'], data_format)
+        
+        # Set column widths
+        worksheet.set_column('A:A', 25)
+        worksheet.set_column('B:B', 20)
+        worksheet.set_column('C:C', 15)
+        worksheet.set_column('D:D', 15)
     
-    # Make predictions
-    st.markdown(f"## 🎯 Advanced Prediction: {home_team} vs {away_team}")
+    output.seek(0)
+    return output
+
+def predict_match(home_team, away_team, team_stats, df):
+    """Predict match outcome using statistical model"""
+    home_stats = team_stats[home_team]
+    away_stats = team_stats[away_team]
     
-    # Dixon-Coles Goal Prediction
-    dc_prediction = advanced_predictor.predict_goals_dixon_coles(
-        home_team, away_team, 
-        stats['league_home_goals'], 
-        stats['league_away_goals']
+    home_form = calculate_form(df, home_team)
+    away_form = calculate_form(df, away_team)
+    
+    home_attack = (home_stats['home_goals_avg'] * 0.6 + home_form['goals_scored'] / max(home_form['games'], 1) * 0.4)
+    away_attack = (away_stats['away_goals_avg'] * 0.6 + away_form['goals_scored'] / max(away_form['games'], 1) * 0.4)
+    
+    home_defense = (home_stats['conceded_per_game'] * 0.6 + home_form['goals_conceded'] / max(home_form['games'], 1) * 0.4)
+    away_defense = (away_stats['conceded_per_game'] * 0.6 + away_form['goals_conceded'] / max(away_form['games'], 1) * 0.4)
+    
+    home_xg = (home_attack + away_defense) / 2
+    away_xg = (away_attack + home_defense) / 2
+    
+    home_advantage = 0.3
+    goal_diff = home_xg - away_xg + home_advantage
+    
+    if goal_diff > 0.5:
+        prob_home = min(0.5 + goal_diff * 0.15, 0.75)
+        prob_away = max(0.15, 0.35 - goal_diff * 0.1)
+    elif goal_diff < -0.5:
+        prob_away = min(0.5 - goal_diff * 0.15, 0.75)
+        prob_home = max(0.15, 0.35 + goal_diff * 0.1)
+    else:
+        prob_home = 0.40
+        prob_away = 0.30
+    
+    prob_draw = max(0.15, 1 - prob_home - prob_away)
+    
+    total = prob_home + prob_draw + prob_away
+    prob_home /= total
+    prob_draw /= total
+    prob_away /= total
+    
+    total_xg = home_xg + away_xg
+    prob_over_15 = min(0.95, max(0.05, 1 / (1 + np.exp(-2 * (total_xg - 1.5)))))
+    prob_over_25 = min(0.95, max(0.05, 1 / (1 + np.exp(-2 * (total_xg - 2.5)))))
+    prob_over_35 = min(0.95, max(0.05, 1 / (1 + np.exp(-2 * (total_xg - 3.5)))))
+    
+    # SOT prediction
+    home_games_home = df[df['HomeTeam'] == home_team]
+    away_games_away = df[df['AwayTeam'] == away_team]
+    
+    home_sot_home = home_games_home['HST'].mean() if len(home_games_home) > 0 and 'HST' in df.columns else 4.5
+    away_sot_away = away_games_away['AST'].mean() if len(away_games_away) > 0 and 'AST' in df.columns else 3.5
+    
+    total_sot = home_sot_home + away_sot_away
+    prob_sot_over_10 = min(0.95, max(0.05, 1 / (1 + np.exp(-0.8 * (total_sot - 10.5)))))
+    
+    # Corners prediction
+    home_corners_home = home_games_home['HC'].mean() if len(home_games_home) > 0 and 'HC' in df.columns else 5.0
+    away_corners_away = away_games_away['AC'].mean() if len(away_games_away) > 0 and 'AC' in df.columns else 4.5
+    
+    total_corners = home_corners_home + away_corners_away
+    prob_corners_over_8 = min(0.95, max(0.05, 1 / (1 + np.exp(-0.6 * (total_corners - 8.5)))))
+    prob_corners_over_10 = min(0.95, max(0.05, 1 / (1 + np.exp(-0.6 * (total_corners - 10.5)))))
+    prob_corners_over_12 = min(0.95, max(0.05, 1 / (1 + np.exp(-0.6 * (total_corners - 12.5)))))
+    
+    return {
+        'home': prob_home,
+        'draw': prob_draw,
+        'away': prob_away,
+        'home_xg': home_xg,
+        'away_xg': away_xg,
+        'total_goals': total_xg,
+        'over_15': prob_over_15,
+        'over_25': prob_over_25,
+        'over_35': prob_over_35,
+        'total_sot': total_sot,
+        'sot_over_10': prob_sot_over_10,
+        'total_corners': total_corners,
+        'corners_over_8': prob_corners_over_8,
+        'corners_over_10': prob_corners_over_10,
+        'corners_over_12': prob_corners_over_12
+    }
+
+def find_value_bets(df, team_stats, threshold=0.05):
+    """Find value betting opportunities"""
+    value_bets = []
+    
+    for _, match in df.iterrows():
+        prediction = predict_match(match['HomeTeam'], match['AwayTeam'], team_stats, df)
+        
+        home_value = prediction['home'] - (1 / match['B365H'])
+        draw_value = prediction['draw'] - (1 / match['B365D'])
+        away_value = prediction['away'] - (1 / match['B365A'])
+        
+        if home_value > threshold:
+            value_bets.append({
+                'Date': match['Date'],
+                'Match': f"{match['HomeTeam']} vs {match['AwayTeam']}",
+                'Bet': 'Home Win',
+                'Model Prob': f"{prediction['home']*100:.1f}%",
+                'Odds': match['B365H'],
+                'Expected Value': (prediction['home'] * match['B365H'] - 1) * 100
+            })
+        
+        if draw_value > threshold:
+            value_bets.append({
+                'Date': match['Date'],
+                'Match': f"{match['HomeTeam']} vs {match['AwayTeam']}",
+                'Bet': 'Draw',
+                'Model Prob': f"{prediction['draw']*100:.1f}%",
+                'Odds': match['B365D'],
+                'Expected Value': (prediction['draw'] * match['B365D'] - 1) * 100
+            })
+        
+        if away_value > threshold:
+            value_bets.append({
+                'Date': match['Date'],
+                'Match': f"{match['HomeTeam']} vs {match['AwayTeam']}",
+                'Bet': 'Away Win',
+                'Model Prob': f"{prediction['away']*100:.1f}%",
+                'Odds': match['B365A'],
+                'Expected Value': (prediction['away'] * match['B365A'] - 1) * 100
+            })
+    
+    return pd.DataFrame(value_bets)
+
+# Sidebar configuration
+st.sidebar.title("📁 Data Source")
+
+data_source = st.sidebar.radio(
+    "Choose Data Source:",
+    ["📊 Premier League (Default)", "📤 Upload CSV File"]
+)
+
+uploaded_file = None
+league_name = "Premier League 2025/26"
+
+if data_source == "📤 Upload CSV File":
+    st.sidebar.markdown("### Upload Your League Data")
+    uploaded_file = st.sidebar.file_uploader(
+        "Choose a CSV file",
+        type=['csv']
     )
     
-    # Bayesian Shots Prediction
-    home_stats = stats['home'].get(home_team, {})
-    away_stats = stats['away'].get(away_team, {})
+    if uploaded_file is not None:
+        league_name = st.sidebar.text_input("League Name", "Custom League")
+        st.sidebar.success("✅ File uploaded successfully!")
+
+st.sidebar.markdown("---")
+st.sidebar.title("🎯 Model Settings")
+
+value_threshold = st.sidebar.slider("Value Bet Threshold (%)", 1, 20, 5) / 100
+
+# Load data
+with st.spinner('Loading football data...'):
+    if data_source == "📤 Upload CSV File" and uploaded_file is not None:
+        df = load_data('upload', uploaded_file)
+    else:
+        df = load_data('default')
     
-    league_avg = {
-        'home_shots': stats['league_home_shots'],
-        'away_shots': stats['league_away_shots'],
-        'home_corners': stats['league_home_corners'],
-        'away_corners': stats['league_away_corners']
-    }
+    if df is None:
+        st.stop()
     
-    shots_prediction = shots_predictor.predict_shots(home_team, away_team, home_stats, away_stats, league_avg)
-    corners_prediction = shots_predictor.predict_corners(home_team, away_team, home_stats, away_stats, league_avg)
+    team_stats = calculate_team_stats(df)
+
+st.sidebar.markdown("---")
+st.sidebar.markdown(f"### 📊 Current Dataset")
+st.sidebar.write(f"**League:** {league_name}")
+st.sidebar.write(f"**Matches:** {len(df)}")
+st.sidebar.write(f"**Teams:** {len(df['HomeTeam'].unique())}")
+
+# Add TotalCorners and TotalSOT to df before tabs
+df['TotalGoals'] = df['FTHG'] + df['FTAG']
+if 'HST' in df.columns and 'AST' in df.columns:
+    df['TotalSOT'] = df['HST'] + df['AST']
+else:
+    df['TotalSOT'] = 0
+
+if 'HC' in df.columns and 'AC' in df.columns:
+    df['TotalCorners'] = df['HC'] + df['AC']
+else:
+    df['TotalCorners'] = 0
+
+# Create tabs
+tab1, tab2, tab3, tab4, tab5 = st.tabs(["📊 Dashboard", "🔮 Predictor", "💰 Value Finder", "📈 Team Stats", "🎯 Special Markets"])
+
+with tab1:
+    st.header(f"Season Overview - {league_name}")
     
-    # Value Analysis
-    value_analysis = value_analyzer.analyze_value(dc_prediction)
+    # Match selector
+    st.markdown("### Select a Match to Highlight")
+    matches_list = df.apply(lambda x: f"{x['HomeTeam']} vs {x['AwayTeam']} ({x['Date'].strftime('%d/%m/%Y')})", axis=1).tolist()
+    selected_match_idx = st.selectbox("Choose match:", range(len(matches_list)), format_func=lambda i: matches_list[i], key="tab1_match")
     
-    # Display results
+    col1, col2, col3, col4 = st.columns(4)
+    
+    with col1:
+        st.metric("Total Matches", len(df))
+    with col2:
+        home_wins = (df['FTR'] == 'H').sum()
+        st.metric("Home Wins", f"{home_wins} ({home_wins/len(df)*100:.1f}%)")
+    with col3:
+        draws = (df['FTR'] == 'D').sum()
+        st.metric("Draws", f"{draws} ({draws/len(df)*100:.1f}%)")
+    with col4:
+        away_wins = (df['FTR'] == 'A').sum()
+        st.metric("Away Wins", f"{away_wins} ({away_wins/len(df)*100:.1f}%)")
+    
+    col1, col2 = st.columns(2)
+    
+    with col1:
+        result_counts = df['FTR'].value_counts()
+        fig = px.pie(values=result_counts.values, 
+                     names=['Home Win', 'Draw', 'Away Win'],
+                     title="Match Results Distribution", 
+                     hole=0.4)
+        st.plotly_chart(fig, use_container_width=True)
+    
+    with col2:
+        total_goals = df['FTHG'] + df['FTAG']
+        fig = px.histogram(total_goals, nbins=15, title="Goals Distribution",
+                          labels={'value': 'Total Goals', 'count': 'Matches'})
+        st.plotly_chart(fig, use_container_width=True)
+    
+    st.subheader("Recent Matches")
+    recent = df.tail(10)[['Date', 'HomeTeam', 'AwayTeam', 'FTHG', 'FTAG', 'FTR']].copy()
+    recent['Result'] = recent.apply(lambda x: f"{x['FTHG']} - {x['FTAG']}", axis=1)
+    st.dataframe(recent[['Date', 'HomeTeam', 'AwayTeam', 'Result']], use_container_width=True, hide_index=True)
+
+with tab2:
+    st.header("Match Predictor")
+    
+    teams = sorted(df['HomeTeam'].unique())
+    
+    col1, col2 = st.columns(2)
+    with col1:
+        home_team = st.selectbox("Home Team", teams, index=0)
+    with col2:
+        away_team = st.selectbox("Away Team", teams, index=1)
+        if home_team == away_team:
+            st.error("Please select different teams!")
+        else:
+            prediction = predict_match(home_team, away_team, team_stats, df)
+            
+            col1, col2, col3 = st.columns(3)
+            
+            with col1:
+                st.metric("Home Win Probability", f"{prediction['home']*100:.1f}%")
+            with col2:
+                st.metric("Draw Probability", f"{prediction['draw']*100:.1f}%")
+            with col3:
+                st.metric("Away Win Probability", f"{prediction['away']*100:.1f}%")
+            
+            st.markdown("---")
+            
+            col1, col2 = st.columns(2)
+            with col1:
+                st.metric(f"{home_team} Expected Goals", f"{prediction['home_xg']:.2f}")
+            with col2:
+                st.metric(f"{away_team} Expected Goals", f"{prediction['away_xg']:.2f}")
+            
+            st.markdown("### ⚽ Goal Line Markets")
+            col1, col2, col3 = st.columns(3)
+            
+            with col1:
+                st.metric("Over 1.5 Goals", f"{prediction['over_15']*100:.1f}%")
+            with col2:
+                st.metric("Over 2.5 Goals", f"{prediction['over_25']*100:.1f}%")
+            with col3:
+                st.metric("Over 3.5 Goals", f"{prediction['over_35']*100:.1f}%")
+            
+            st.markdown("### 🎯 Special Markets")
+            col1, col2, col3 = st.columns(3)
+            
+            with col1:
+                st.markdown("**Shots on Target**")
+                st.metric("Expected Total", f"{prediction['total_sot']:.1f}")
+                st.metric("Over 10.5", f"{prediction['sot_over_10']*100:.1f}%")
+            
+            with col2:
+                st.markdown("**Corners**")
+                st.metric("Expected Total", f"{prediction['total_corners']:.1f}")
+                st.metric("Over 8.5", f"{prediction['corners_over_8']*100:.1f}%")
+            
+            with col3:
+                st.markdown("**Corners (cont.)**")
+                st.metric("Over 10.5", f"{prediction['corners_over_10']*100:.1f}%")
+                st.metric("Over 12.5", f"{prediction['corners_over_12']*100:.1f}%")
+            
+            # Recent form
+            st.markdown("### Recent Form (Last 5 Games)")
+            home_form = calculate_form(df, home_team, 5)
+            away_form = calculate_form(df, away_team, 5)
+            
+            col1, col2 = st.columns(2)
+            with col1:
+                st.markdown(f"**{home_team}**")
+                st.write(f"Points: {home_form['points']}/15")
+                st.write(f"Goals Scored: {home_form['goals_scored']}")
+                st.write(f"Goals Conceded: {home_form['goals_conceded']}")
+            
+            with col2:
+                st.markdown(f"**{away_team}**")
+                st.write(f"Points: {away_form['points']}/15")
+                st.write(f"Goals Scored: {away_form['goals_scored']}")
+                st.write(f"Goals Conceded: {away_form['goals_conceded']}")
+            
+            # Export button
+            st.markdown("---")
+            st.markdown("### 📥 Export Prediction")
+            
+            excel_file = export_prediction_to_excel(home_team, away_team, prediction)
+            st.download_button(
+                label="📊 Download Excel Report",
+                data=excel_file,
+                file_name=f"{home_team}_vs_{away_team}_prediction.xlsx",
+                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                use_container_width=True
+            )
+    
+    # Display stored prediction if exists
+    if 'last_prediction' in st.session_state and not predict_clicked:
+        prediction = st.session_state.last_prediction['prediction']
+        
+        col1, col2, col3 = st.columns(3)
+        
+        with col1:
+            st.metric("Home Win Probability", f"{prediction['home']*100:.1f}%")
+        with col2:
+            st.metric("Draw Probability", f"{prediction['draw']*100:.1f}%")
+        with col3:
+            st.metric("Away Win Probability", f"{prediction['away']*100:.1f}%")
+
+with tab3:
+    st.header("Value Betting Opportunities")
+    
+    st.markdown("### Select a Match")
+    matches_list_tab3 = df.apply(lambda x: f"{x['HomeTeam']} vs {x['AwayTeam']} ({x['Date'].strftime('%d/%m/%Y')})", axis=1).tolist()
+    selected_match_idx_tab3 = st.selectbox("Choose match:", range(len(matches_list_tab3)), format_func=lambda i: matches_list_tab3[i], key="tab3_match")
+    
+    st.info("🎯 Value bets occur when the model's probability exceeds the bookmaker's implied probability")
+    
+    with st.spinner('Analyzing all matches for value...'):
+        value_df = find_value_bets(df, team_stats, value_threshold)
+    
+    if len(value_df) > 0:
+        st.success(f"Found {len(value_df)} value betting opportunities!")
+        
+        col1, col2, col3 = st.columns(3)
+        
+        with col1:
+            st.metric("Total Value Bets", len(value_df))
+        with col2:
+            avg_ev = value_df['Expected Value'].mean()
+            st.metric("Avg Expected Value", f"{avg_ev:.2f}%")
+        with col3:
+            avg_odds = pd.to_numeric(value_df['Odds'], errors='coerce').mean()
+            st.metric("Avg Odds", f"{avg_odds:.2f}")
+        
+        st.dataframe(value_df.sort_values('Expected Value', ascending=False), use_container_width=True, hide_index=True)
+        
+    else:
+        st.warning("No value opportunities found. Try adjusting the threshold.")
+
+with tab4:
+    st.header("Team Statistics")
+    
+    st.markdown("### Select a Match")
+    matches_list_tab4 = df.apply(lambda x: f"{x['HomeTeam']} vs {x['AwayTeam']} ({x['Date'].strftime('%d/%m/%Y')})", axis=1).tolist()
+    selected_match_idx_tab4 = st.selectbox("Choose match:", range(len(matches_list_tab4)), format_func=lambda i: matches_list_tab4[i], key="tab4_match")
+    
+    league_data = []
+    for team, stats in team_stats.items():
+        league_data.append({
+            'Team': team,
+            'Games': stats['games'],
+            'Wins': stats['wins'],
+            'Win Rate': f"{stats['win_rate']*100:.1f}%",
+            'Goals/Game': f"{stats['goals_per_game']:.2f}",
+            'Conceded/Game': f"{stats['conceded_per_game']:.2f}",
+            'Goal Diff': stats['goal_difference']
+        })
+    
+    league_df = pd.DataFrame(league_data).sort_values('Goal Diff', ascending=False)
+    st.dataframe(league_df, use_container_width=True, hide_index=True)
+    
+    col1, col2 = st.columns(2)
+    
+    with col1:
+        top_teams = league_df.head(10)
+        fig = px.bar(top_teams, x='Team', y='Goal Diff',
+                    title="Top 10 Teams by Goal Difference")
+        st.plotly_chart(fig, use_container_width=True)
+    
+    with col2:
+        fig = px.scatter(league_df.head(15), 
+                        x='Goals/Game', 
+                        y='Conceded/Game',
+                        text='Team',
+                        title="Attack vs Defense")
+        fig.update_traces(textposition='top center')
+        st.plotly_chart(fig, use_container_width=True)
+
+with tab5:
+    st.header("🎯 Special Markets Analysis")
+    
+    st.markdown("### Select a Match")
+    matches_list_tab5 = df.apply(lambda x: f"{x['HomeTeam']} vs {x['AwayTeam']} ({x['Date'].strftime('%d/%m/%Y')})", axis=1).tolist()
+    selected_match_idx_tab5 = st.selectbox("Choose match:", range(len(matches_list_tab5)), format_func=lambda i: matches_list_tab5[i], key="tab5_match")
+    
+    df['TotalGoals'] = df['FTHG'] + df['FTAG']
+    if 'HST' in df.columns and 'AST' in df.columns:
+        df['TotalSOT'] = df['HST'] + df['AST']
+    else:
+        df['TotalSOT'] = 0
+    
+    if 'HC' in df.columns and 'AC' in df.columns:
+        df['TotalCorners'] = df['HC'] + df['AC']
+    else:
+        df['TotalCorners'] = 0
+    
     col1, col2, col3 = st.columns(3)
     
     with col1:
-        st.subheader("🎯 Dixon-Coles Model")
-        if dc_prediction:
-            st.metric("Expected Score", dc_prediction['most_likely_score'])
-            st.metric("Expected Goals", f"{dc_prediction['home_xg']} - {dc_prediction['away_xg']}")
-            st.metric("Model Confidence", f"{dc_prediction['confidence']}%")
-            
-            st.write("**Win Probabilities:**")
-            st.write(f"🏠 {home_team}: {dc_prediction['home_win_prob']}%")
-            st.write(f"⚖️ Draw: {dc_prediction['draw_prob']}%")
-            st.write(f"✈️ {away_team}: {dc_prediction['away_win_prob']}%")
+        avg_goals = df['TotalGoals'].mean()
+        over_25_pct = (df['TotalGoals'] > 2.5).sum() / len(df) * 100
+        st.metric("Avg Total Goals", f"{avg_goals:.2f}", f"{over_25_pct:.1f}% Over 2.5")
     
     with col2:
-        st.subheader("📊 Bayesian Predictions")
-        st.metric("Predicted Shots", 
-                 f"{shots_prediction['home_shots']} - {shots_prediction['away_shots']}")
-        st.metric("Shots on Target",
-                 f"{shots_prediction['home_sot']} - {shots_prediction['away_sot']}")
-        st.metric("Predicted Corners",
-                 f"{corners_prediction['home_corners']} - {corners_prediction['away_corners']}")
-        
-        # Accuracy indicators
-        home_accuracy = home_stats.get('accuracy', 0.35) * 100
-        away_accuracy = away_stats.get('accuracy', 0.30) * 100
-        st.metric("Shot Accuracy", f"{home_accuracy:.1f}% - {away_accuracy:.1f}%")
+        if df['TotalSOT'].sum() > 0:
+            avg_sot = df['TotalSOT'].mean()
+            over_10_sot = (df['TotalSOT'] > 10.5).sum() / len(df) * 100
+            st.metric("Avg SOT", f"{avg_sot:.2f}", f"{over_10_sot:.1f}% Over 10.5")
     
     with col3:
-        st.subheader("💰 Value Analysis")
-        for outcome, analysis in value_analysis.items():
-            outcome_name = {'home': home_team, 'draw': 'Draw', 'away': away_team}[outcome]
-            color = "green" if analysis['value_percentage'] > 5 else "orange" if analysis['value_percentage'] > 0 else "red"
-            
-            st.metric(
-                f"{outcome_name} Value",
-                f"{analysis['value_percentage']}%",
-                f"Model: {analysis['model_prob']}% vs Implied: {analysis['implied_prob']}%",
-                delta_color="normal" if analysis['value_percentage'] > 0 else "off"
-            )
+        if df['TotalCorners'].sum() > 0:
+            avg_corners = df['TotalCorners'].mean()
+            over_10_corners = (df['TotalCorners'] > 10.5).sum() / len(df) * 100
+            st.metric("Avg Corners", f"{avg_corners:.2f}", f"{over_10_corners:.1f}% Over 10.5")
     
-    # HTML Export Section
     st.markdown("---")
-    st.subheader("📄 Export Professional Report")
     
-    if st.button("🔄 Generate HTML Report"):
-        with st.spinner("Generating professional report..."):
-            html_report = html_generator.generate_report(
-                home_team, away_team, dc_prediction, shots_prediction,
-                corners_prediction, value_analysis, team_ratings, stats
-            )
-            
-            # Create download button
-            b64 = base64.b64encode(html_report.encode()).decode()
-            href = f'data:text/html;base64,{b64}'
-            
-            st.success("✅ Professional report generated successfully!")
-            
-            st.download_button(
-                label="📥 Download HTML Report",
-                data=html_report,
-                file_name=f"{home_team}_vs_{away_team}_prediction_report.html",
-                mime="text/html",
-                help="Download a professional HTML report with all predictions and analysis"
-            )
-            
-            # Preview
-            st.subheader("👁️ Report Preview")
-            st.components.v1.html(html_report, height=800, scrolling=True)
-
-if __name__ == "__main__":
-    main()
+    col1, col2 = st.columns(2)
+    
+    with col1:
+        st.markdown("#### ⚽ Goals Distribution")
+        goals_dist = (df['TotalGoals']).value_counts().sort_index()
+        fig = px.bar(x=goals_dist.index, y=goals_dist.values,
+                    labels={'x': 'Total Goals', 'y': 'Frequency'},
+                    title="Goals per Match Distribution")
+        st.plotly_chart(fig, use_container_width=True)
+    
+    with col2:
+        st.markdown("#### 🚩 Corners vs Goals")
+        fig = px.scatter(df.dropna(subset=['TotalCorners', 'TotalGoals']),
+                        x='TotalGoals', y='TotalCorners',
+                        title="Relationship: Goals vs Corners")
+        st.plotly_chart(fig, use_container_width=True)
