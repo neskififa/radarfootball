@@ -1,0 +1,13 @@
+streamlit
+pandas
+numpy
+scipy
+plotly
+Pillow
+requests
+pdfkit
+openpyxl
+beautifulsoup4
+lxml
+matplotlib
+xlsxwriter
