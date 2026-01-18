@@ -80,7 +80,7 @@ class SofaScoreScraper:
             'Sec-Fetch-Site': 'none',
             'Cache-Control': 'max-age=0',
         }
-        self.base_url = "https://www.sofascore.com"
+        self.base_url = "https://www.flashscore.com.br"
     
     def get_live_matches(self):
         """Scrape live matches from SofaScore homepage"""
